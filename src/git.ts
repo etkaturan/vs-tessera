@@ -196,11 +196,17 @@ export function canSafelyUndo(repo: Repository): { safe: boolean; reason: string
     // No tracking branch — nothing has been pushed anywhere.
     return { safe: true, reason: "No upstream; commit is local only." };
   }
-  if (ahead > 0) {
+  // With an upstream, only allow undo when we can POSITIVELY confirm the commit
+  // is unpushed (ahead > 0). If ahead is undefined/unknown for any reason,
+  // fail safe: refuse rather than risk rewriting pushed history.
+  if (head.ahead !== undefined && ahead > 0) {
     return { safe: true, reason: `${ahead} local commit(s) not yet pushed.` };
   }
   return {
     safe: false,
-    reason: "The latest commit appears to be pushed. Undoing published history is unsafe.",
+    reason:
+      head.ahead === undefined
+        ? "Could not confirm this commit is unpushed. Refusing undo to be safe."
+        : "The latest commit appears to be pushed. Undoing published history is unsafe.",
   };
 }
