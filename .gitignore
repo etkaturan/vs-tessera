@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+*.vsix
+
+# VS Code workspace-local settings (Sigil colors, etc. — machine-specific)
+.vscode/settings.json
+
+# Environment & secrets
+.env
+.env.*
+*.pem
+*.key
+id_rsa
+credentials.json
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
