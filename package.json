@@ -38,6 +38,10 @@
       {
         "command": "tessera.refresh",
         "title": "Tessera: Refresh Panel"
+      },
+      {
+        "command": "tessera.undo",
+        "title": "Tessera: Undo Last Commit"
       }
     ]
   },

@@ -36,7 +36,12 @@ function formatFindings(findings: Finding[]): string {
     .join("\n");
 }
 
-export async function runCommitFlow(): Promise<void> {
+export interface CommitOptions {
+  message?: string;   // override; when absent, generate from diff
+  push?: boolean;     // when false, commit locally only
+}
+
+export async function runCommitFlow(opts: CommitOptions = {}): Promise<void> {
   const api = getGitApi();
   const repo = api ? pickRepository(api) : undefined;
   if (!repo) {
@@ -84,21 +89,25 @@ export async function runCommitFlow(): Promise<void> {
     }
   }
 
-  // 3. Stage everything, build honest message, commit, push.
-  const message = buildMessage(facts);
+  // 3. Stage everything, resolve the message (override or generated), commit.
+  const generated = buildMessage(facts);
+  const message = opts.message?.trim() ? opts.message.trim() : generated;
+
   try {
     await repo.add([]); // empty array = stage all tracked+untracked changes
     await repo.commit(message);
     vscode.window.showInformationMessage(`Tessera committed: ${message}`);
 
-    // Push is best-effort; surface failure but don't undo the commit.
-    try {
-      await repo.push();
-      vscode.window.showInformationMessage("Tessera pushed to remote.");
-    } catch {
-      vscode.window.showWarningMessage(
-        "Tessera committed locally, but push failed (offline?). It will push next time."
-      );
+    // 4. Push only if requested (default true for the combined action).
+    if (opts.push !== false) {
+      try {
+        await repo.push();
+        vscode.window.showInformationMessage("Tessera pushed to remote.");
+      } catch {
+        vscode.window.showWarningMessage(
+          "Tessera committed locally, but push failed (offline?). It will push next time."
+        );
+      }
     }
   } catch (err) {
     vscode.window.showErrorMessage(`Tessera commit failed: ${String(err)}`);

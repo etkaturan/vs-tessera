@@ -13,9 +13,17 @@ interface Repository {
   rootUri: vscode.Uri;
   state: RepositoryState;
   diffIndexWithHEAD(): Promise<DiffChange[]>;
+  diff(cached?: boolean): Promise<string>;
   add(paths: string[]): Promise<void>;
   commit(message: string): Promise<void>;
   push(): Promise<void>;
+  reset(treeish: string, hard?: boolean): Promise<void>;
+  log(options?: { maxEntries?: number }): Promise<Commit[]>;
+}
+
+interface Commit {
+  hash: string;
+  message: string;
 }
 
 interface DiffChange {
@@ -28,7 +36,7 @@ interface RepositoryState {
   readonly workingTreeChanges: Change[];
   readonly indexChanges: Change[];
   readonly untrackedChanges: Change[];
-  readonly HEAD?: { name?: string };
+  readonly HEAD?: { name?: string; ahead?: number; behind?: number; upstream?: { name: string } };
   readonly onDidChange: vscode.Event<void>;
 }
 interface Change {
@@ -170,4 +178,29 @@ export function allChangeFacts(repo: Repository): StagedFacts {
   // De-dupe files that appear in both staged and unstaged lists.
   facts.files = Array.from(new Set(facts.files));
   return facts;
+}
+
+
+// Determines whether the latest commit can be safely undone.
+// Safe when there is at least one local commit not yet on the remote
+// (ahead > 0), or when there is no upstream at all (nothing was pushed).
+export function canSafelyUndo(repo: Repository): { safe: boolean; reason: string } {
+  const head = repo.state.HEAD;
+  if (!head) {
+    return { safe: false, reason: "No HEAD commit found." };
+  }
+  const hasUpstream = !!head.upstream;
+  const ahead = head.ahead ?? 0;
+
+  if (!hasUpstream) {
+    // No tracking branch — nothing has been pushed anywhere.
+    return { safe: true, reason: "No upstream; commit is local only." };
+  }
+  if (ahead > 0) {
+    return { safe: true, reason: `${ahead} local commit(s) not yet pushed.` };
+  }
+  return {
+    safe: false,
+    reason: "The latest commit appears to be pushed. Undoing published history is unsafe.",
+  };
 }
