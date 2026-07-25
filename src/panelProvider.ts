@@ -16,7 +16,12 @@ export class TesseraPanelProvider implements vscode.WebviewViewProvider {
 
     view.webview.onDidReceiveMessage((msg) => {
       if (msg?.type === "commit") {
-        vscode.commands.executeCommand("tessera.commit");
+        vscode.commands.executeCommand("tessera.commit", {
+          message: typeof msg.message === "string" ? msg.message : undefined,
+          push: msg.push !== false,
+        });
+      } else if (msg?.type === "undo") {
+        vscode.commands.executeCommand("tessera.undo");
       } else if (msg?.type === "refresh") {
         void this.refresh();
       }
@@ -97,9 +102,15 @@ export class TesseraPanelProvider implements vscode.WebviewViewProvider {
         <span class="untracked">${status.untracked} new</span>
       </div>
       <div class="files">${rows || `<p class="muted">Working tree clean.</p>`}</div>
-      ${total > 0 ? `<div class="msg-label">Commit message preview</div>
-      <div class="msg">${escapeHtml(this.previewMessage)}</div>` : ""}
-      <button id="commit" ${total === 0 ? "disabled" : ""}>Commit</button>
+      ${
+        total > 0
+          ? `<div class="msg-label">Commit message (editable)</div>
+      <textarea id="msg" rows="2">${escapeHtml(this.previewMessage)}</textarea>
+      <button id="commitPush" class="primary">Commit &amp; Push</button>
+      <button id="commitOnly">Commit only</button>`
+          : ""
+      }
+      <button id="undo" class="ghost">Undo last commit</button>
     `;
     return this.shell(body);
   }
@@ -126,13 +137,32 @@ export class TesseraPanelProvider implements vscode.WebviewViewProvider {
     border: none; border-radius: 2px; }
   button:disabled { opacity: 0.5; cursor: default; }
   button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+  button.primary { margin-bottom: 4px; }
+  button#commitOnly { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); margin-bottom: 8px; }
+  button.ghost { background: transparent; color: var(--vscode-descriptionForeground); border: 1px solid var(--vscode-panel-border); }
+  textarea { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 5px 7px;
+    font-family: var(--vscode-editor-font-family, monospace); font-size: 12px;
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; resize: vertical; }
 </style></head>
 <body>
   ${inner}
   <script>
     const vscode = acquireVsCodeApi();
-    const btn = document.getElementById('commit');
-    if (btn) btn.addEventListener('click', () => vscode.postMessage({ type: 'commit' }));
+    const msgEl = document.getElementById('msg');
+    const getMsg = () => (msgEl ? msgEl.value : undefined);
+
+    const cp = document.getElementById('commitPush');
+    if (cp) cp.addEventListener('click', () =>
+      vscode.postMessage({ type: 'commit', message: getMsg(), push: true }));
+
+    const co = document.getElementById('commitOnly');
+    if (co) co.addEventListener('click', () =>
+      vscode.postMessage({ type: 'commit', message: getMsg(), push: false }));
+
+    const un = document.getElementById('undo');
+    if (un) un.addEventListener('click', () =>
+      vscode.postMessage({ type: 'undo' }));
   </script>
 </body>
 </html>`;
