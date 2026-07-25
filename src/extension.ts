@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { TesseraPanelProvider } from "./panelProvider";
+import { runCommitFlow } from "./commitFlow";
 
 export function activate(context: vscode.ExtensionContext) {
   const provider = new TesseraPanelProvider(context);
@@ -11,8 +12,9 @@ export function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  const commit = vscode.commands.registerCommand("tessera.commit", () => {
-    vscode.window.showInformationMessage("Tessera: commit flow not built yet.");
+  const commit = vscode.commands.registerCommand("tessera.commit", async () => {
+    await runCommitFlow();
+    void provider.refresh();
   });
   context.subscriptions.push(commit);
 
