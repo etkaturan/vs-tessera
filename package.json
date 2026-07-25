@@ -9,7 +9,7 @@
     "vscode": "^1.85.0"
   },
   "categories": ["SCM Providers", "Other"],
-  "activationEvents": [],
+  "activationEvents": ["onStartupFinished"],
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -34,6 +34,10 @@
       {
         "command": "tessera.commit",
         "title": "Tessera: Commit Now"
+      },
+      {
+        "command": "tessera.refresh",
+        "title": "Tessera: Refresh Panel"
       }
     ]
   },
