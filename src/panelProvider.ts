@@ -1,10 +1,12 @@
 import * as vscode from "vscode";
-import { ensureGitApi, getGitApi, pickRepository, readStatus, TesseraStatus } from "./git";
+import { ensureGitApi, getGitApi, pickRepository, readStatus, allChangeFacts, TesseraStatus } from "./git";
+import { buildMessage } from "./message";
 
 export class TesseraPanelProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "tessera.panel";
   private view?: vscode.WebviewView;
   private repoListener?: vscode.Disposable;
+  private previewMessage = "";
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -63,6 +65,12 @@ export class TesseraPanelProvider implements vscode.WebviewViewProvider {
     const api = await ensureGitApi();
     const repo = api ? pickRepository(api) : undefined;
     const status = repo ? readStatus(repo) : undefined;
+    if (repo && status && status.files.length > 0) {
+      const facts = allChangeFacts(repo);
+      this.previewMessage = buildMessage(facts);
+    } else {
+      this.previewMessage = "";
+    }
     this.view.webview.html = this.render(status);
   }
 
@@ -89,6 +97,8 @@ export class TesseraPanelProvider implements vscode.WebviewViewProvider {
         <span class="untracked">${status.untracked} new</span>
       </div>
       <div class="files">${rows || `<p class="muted">Working tree clean.</p>`}</div>
+      ${total > 0 ? `<div class="msg-label">Commit message preview</div>
+      <div class="msg">${escapeHtml(this.previewMessage)}</div>` : ""}
       <button id="commit" ${total === 0 ? "disabled" : ""}>Commit</button>
     `;
     return this.shell(body);
@@ -109,6 +119,8 @@ export class TesseraPanelProvider implements vscode.WebviewViewProvider {
   .dot.unstaged { background: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d); }
   .dot.untracked { background: var(--vscode-gitDecoration-untrackedResourceForeground, #73c991); }
   .muted { color: var(--vscode-descriptionForeground); }
+  .msg-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--vscode-descriptionForeground); margin-bottom: 3px; }
+  .msg { font-family: var(--vscode-editor-font-family, monospace); background: var(--vscode-textBlockQuote-background); padding: 5px 7px; border-radius: 3px; margin-bottom: 8px; word-break: break-word; }
   button { width: 100%; padding: 6px; cursor: pointer;
     background: var(--vscode-button-background); color: var(--vscode-button-foreground);
     border: none; border-radius: 2px; }

@@ -12,6 +12,17 @@ interface GitAPI {
 interface Repository {
   rootUri: vscode.Uri;
   state: RepositoryState;
+  diffIndexWithHEAD(): Promise<DiffChange[]>;
+  add(paths: string[]): Promise<void>;
+  commit(message: string): Promise<void>;
+  push(): Promise<void>;
+}
+
+interface DiffChange {
+  uri: vscode.Uri;
+  originalUri: vscode.Uri;
+  renameUri?: vscode.Uri;
+  status: number;
 }
 interface RepositoryState {
   readonly workingTreeChanges: Change[];
@@ -85,17 +96,78 @@ export function readStatus(repo: Repository): TesseraStatus {
   const rel = (uri: vscode.Uri) =>
     vscode.workspace.asRelativePath(uri, false);
 
+  // Status 7 = UNTRACKED. The Git API surfaces untracked files inside
+  // workingTreeChanges, so classify by status rather than by which list.
+  const UNTRACKED = 7;
+  const wtUntracked = s.workingTreeChanges.filter((c) => c.status === UNTRACKED);
+  const wtModified = s.workingTreeChanges.filter((c) => c.status !== UNTRACKED);
+
   const files: TesseraStatus["files"] = [
     ...s.indexChanges.map((c) => ({ path: rel(c.uri), state: "staged" as const })),
-    ...s.workingTreeChanges.map((c) => ({ path: rel(c.uri), state: "unstaged" as const })),
+    ...wtModified.map((c) => ({ path: rel(c.uri), state: "unstaged" as const })),
+    ...wtUntracked.map((c) => ({ path: rel(c.uri), state: "untracked" as const })),
     ...s.untrackedChanges.map((c) => ({ path: rel(c.uri), state: "untracked" as const })),
   ];
 
   return {
     branch: s.HEAD?.name ?? "(detached)",
     staged: s.indexChanges.length,
-    unstaged: s.workingTreeChanges.length,
-    untracked: s.untrackedChanges.length,
+    unstaged: wtModified.length,
+    untracked: wtUntracked.length + s.untrackedChanges.length,
     files,
   };
+}
+
+// Raw facts about the staged changes, for the message engine.
+export interface StagedFacts {
+  files: string[];
+  added: number;      // new files
+  modified: number;   // edited files
+  deleted: number;    // removed files
+  renamed: number;
+}
+
+// VS Code Git API status codes for index changes.
+// 0=INDEX_MODIFIED, 1=INDEX_ADDED, 2=INDEX_DELETED, 3=INDEX_RENAMED, 4=INDEX_COPIED
+export function stagedFacts(repo: Repository): StagedFacts {
+  const changes = repo.state.indexChanges;
+  const rel = (uri: vscode.Uri) => vscode.workspace.asRelativePath(uri, false);
+  const facts: StagedFacts = { files: [], added: 0, modified: 0, deleted: 0, renamed: 0 };
+  for (const c of changes) {
+    facts.files.push(rel(c.uri));
+    switch (c.status) {
+      case 1: facts.added++; break;
+      case 2: facts.deleted++; break;
+      case 3: facts.renamed++; break;
+      case 4: facts.renamed++; break;
+      default: facts.modified++; break;
+    }
+  }
+  return facts;
+}
+
+// Facts about everything that WOULD be committed in the one-click flow
+// (staged + unstaged + untracked), so the previewed message matches reality.
+export function allChangeFacts(repo: Repository): StagedFacts {
+  const rel = (uri: vscode.Uri) => vscode.workspace.asRelativePath(uri, false);
+  const facts: StagedFacts = { files: [], added: 0, modified: 0, deleted: 0, renamed: 0 };
+
+  const bump = (status: number) => {
+    switch (status) {
+      case 1: facts.added++; break;   // added (index)
+      case 2: facts.deleted++; break;
+      case 3: case 4: facts.renamed++; break;
+      case 6: facts.deleted++; break; // deleted (working tree)
+      case 7: facts.added++; break;   // untracked
+      default: facts.modified++; break;
+    }
+  };
+
+  for (const c of repo.state.indexChanges) { facts.files.push(rel(c.uri)); bump(c.status); }
+  for (const c of repo.state.workingTreeChanges) { facts.files.push(rel(c.uri)); bump(c.status); }
+  for (const c of repo.state.untrackedChanges) { facts.files.push(rel(c.uri)); facts.added++; facts.files; }
+
+  // De-dupe files that appear in both staged and unstaged lists.
+  facts.files = Array.from(new Set(facts.files));
+  return facts;
 }
