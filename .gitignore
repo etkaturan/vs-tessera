@@ -5,7 +5,7 @@ node_modules/
 out/
 *.vsix
 
-# VS Code workspace-local settings (Sigil colors, etc. — machine-specific)
+# VS Code workspace-local settings
 .vscode/settings.json
 
 # Environment & secrets
@@ -19,3 +19,7 @@ credentials.json
 # OS / editor cruft
 .DS_Store
 Thumbs.db
+
+# Temp test scripts
+scan-test.js
+*-test.js
