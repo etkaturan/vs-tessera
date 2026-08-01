@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getGitApi, pickRepository, allChangeFacts, readDiffText } from "./git";
+import { getGitApi, pickRepository, allChangeFacts, readDiffText, readStatus, addPatternsToGitignore } from "./git";
 import { buildMessage } from "./message";
 import { scan, hasBlocking, Finding, ScanTarget } from "./secrets";
 
@@ -36,6 +36,26 @@ function formatFindings(findings: Finding[]): string {
     .join("\n");
 }
 
+// Resolves once the repo's git status has refreshed (e.g. after writing
+// .gitignore), or after timeoutMs — whichever comes first — so a retried
+// commit sees up-to-date file state instead of a stale snapshot.
+function waitForRepoStateRefresh(
+  repo: { state: { onDidChange: vscode.Event<void> } },
+  timeoutMs = 1500
+): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      disposable.dispose();
+      resolve();
+    }, timeoutMs);
+    const disposable = repo.state.onDidChange(() => {
+      clearTimeout(timer);
+      disposable.dispose();
+      resolve();
+    });
+  });
+}
+
 export interface CommitOptions {
   message?: string;   // override; when absent, generate from diff
   push?: boolean;     // when false, commit locally only
@@ -60,11 +80,40 @@ export async function runCommitFlow(opts: CommitOptions = {}): Promise<void> {
   const findings = scan(targets);
 
   if (hasBlocking(findings)) {
-    const detail = formatFindings(findings.filter((f) => f.severity === "block"));
+    const blocking = findings.filter((f) => f.severity === "block");
+
+    // Only whole-file findings (an entire file that shouldn't be committed,
+    // like .env or a .pem) make sense to remediate via .gitignore. A secret
+    // found inside otherwise-legitimate source content should not cause the
+    // whole file to be hidden from git — that masks the problem instead of
+    // fixing it.
+    const filenameBlocking = blocking.filter((f) => f.kind === "filename");
+    const untrackedPaths = new Set(
+      readStatus(repo).files.filter((f) => f.state === "untracked").map((f) => f.path)
+    );
+    const gitignoreCandidates = Array.from(
+      new Set(filenameBlocking.filter((f) => untrackedPaths.has(f.file)).map((f) => f.file))
+    );
+    const alreadyTracked = Array.from(
+      new Set(filenameBlocking.filter((f) => !untrackedPaths.has(f.file)).map((f) => f.file))
+    );
+
+    let detail = formatFindings(blocking);
+    if (alreadyTracked.length > 0) {
+      detail += `\n\nNote: ${alreadyTracked.join(
+        ", "
+      )} already exist in Git's history — adding to .gitignore won't remove them. Run "git rm --cached <file>" to untrack, then commit again.`;
+    }
+
+    const buttons = ["Show Details"];
+    if (gitignoreCandidates.length > 0) {
+      buttons.push("Add to .gitignore && Retry");
+    }
+
     const choice = await vscode.window.showErrorMessage(
       "Tessera blocked the commit — possible secrets detected.",
       { modal: true, detail },
-      "Show Details"
+      ...buttons
     );
     if (choice === "Show Details") {
       const doc = await vscode.workspace.openTextDocument({
@@ -72,6 +121,15 @@ export async function runCommitFlow(opts: CommitOptions = {}): Promise<void> {
         language: "text",
       });
       await vscode.window.showTextDocument(doc);
+      return;
+    }
+    if (choice === "Add to .gitignore && Retry") {
+      await addPatternsToGitignore(repo.rootUri, gitignoreCandidates);
+      vscode.window.showInformationMessage(
+        `Tessera: added ${gitignoreCandidates.length} pattern(s) to .gitignore. Retrying commit…`
+      );
+      await waitForRepoStateRefresh(repo);
+      return runCommitFlow(opts);
     }
     return; // hard stop — no commit
   }
