@@ -14,6 +14,7 @@ export interface Finding {
 
 interface FilenameRule {
   test: RegExp;
+  exclude?: RegExp; // matches here override a `test` hit — e.g. template/example files
   reason: string;
   severity: Severity;
 }
@@ -25,7 +26,15 @@ interface ContentRule {
 }
 
 const FILENAME_RULES: FilenameRule[] = [
-  { test: /(^|\/)\.env(\.|$)/i, reason: "environment file (.env)", severity: "block" },
+  {
+    test: /(^|\/)\.env(\.|$)/i,
+    // Template/example env files are meant to be committed — no real values.
+    // Their *content* is still scanned by CONTENT_RULES in case someone
+    // pastes a real secret into one by mistake.
+    exclude: /\.(example|sample|template|dist|defaults?)$/i,
+    reason: "environment file (.env)",
+    severity: "block",
+  },
   { test: /\.pem$/i, reason: "PEM file", severity: "block" },
   { test: /\.key$/i, reason: "key file", severity: "block" },
   { test: /(^|\/)id_rsa$/i, reason: "SSH private key", severity: "block" },
@@ -55,7 +64,7 @@ export interface ScanTarget {
 export function scanFilename(file: string): Finding[] {
   const findings: Finding[] = [];
   for (const rule of FILENAME_RULES) {
-    if (rule.test.test(file)) {
+    if (rule.test.test(file) && !(rule.exclude && rule.exclude.test(file))) {
       findings.push({ file, reason: rule.reason, severity: rule.severity });
     }
   }
