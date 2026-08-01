@@ -154,17 +154,51 @@ export function stagedFacts(repo: Repository): StagedFacts {
   return facts;
 }
 
-// Combined staged+unstaged diff text for the message engine to read.
+// `git diff` (staged or not) never shows untracked files — only already-tracked
+// content. So a brand-new file's declarations would otherwise be invisible to
+// the message engine. Synthesize an "everything added" diff block per untracked
+// file, in the same unified-diff shape readDiffText's callers already expect.
+async function readUntrackedAsDiff(repo: Repository): Promise<string> {
+  const UNTRACKED = 7;
+  const rel = (uri: vscode.Uri) => vscode.workspace.asRelativePath(uri, false);
+  const untracked = [
+    ...repo.state.workingTreeChanges.filter((c) => c.status === UNTRACKED),
+    ...repo.state.untrackedChanges,
+  ];
+
+  const blocks = await Promise.all(
+    untracked.map(async (c) => {
+      try {
+        const bytes = await vscode.workspace.fs.readFile(c.uri);
+        if (bytes.length > 512 * 1024) return ""; // skip huge/likely-binary files
+        const path = rel(c.uri);
+        const lines = Buffer.from(bytes)
+          .toString("utf8")
+          .split(/\r?\n/)
+          .map((l) => `+${l}`)
+          .join("\n");
+        return `diff --git a/${path} b/${path}\nnew file mode 100644\n--- /dev/null\n+++ b/${path}\n${lines}`;
+      } catch {
+        return ""; // unreadable/binary; skip
+      }
+    })
+  );
+  return blocks.filter(Boolean).join("\n");
+}
+
+// Combined staged+unstaged+untracked diff text for the message engine to read.
 // Best-effort: any failure (e.g. no repo, git error) yields "" rather than throwing,
 // since the message engine must still fall back to count-based summaries.
 export async function readDiffText(repo: Repository): Promise<string> {
   try {
-    const [staged, unstaged] = await Promise.all([
+    const [staged, unstaged, untracked] = await Promise.all([
       repo.diff(true),
       repo.diff(false),
+      readUntrackedAsDiff(repo),
     ]);
-    return `${staged ?? ""}\n${unstaged ?? ""}`;
-  } catch {
+    return `${staged ?? ""}\n${unstaged ?? ""}\n${untracked}`;
+  } catch (err) {
+    console.warn("Tessera: readDiffText failed, falling back to count-based summary.", err);
     return "";
   }
 }
