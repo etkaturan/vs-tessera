@@ -5,10 +5,15 @@
   "version": "0.0.1",
   "publisher": "etkaturan",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/etkaturan/vs-tessera.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": ["SCM Providers", "Other"],
+  "keywords": ["git", "commit", "conventional-commits", "secrets", "productivity"],
   "activationEvents": ["onStartupFinished"],
   "main": "./out/extension.js",
   "contributes": {
