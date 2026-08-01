@@ -1,1 +1,0 @@
-New updates coming soon..
