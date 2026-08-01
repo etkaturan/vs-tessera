@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { ensureGitApi, getGitApi, pickRepository, readStatus, allChangeFacts, TesseraStatus } from "./git";
+import { ensureGitApi, getGitApi, pickRepository, readStatus, allChangeFacts, readDiffText, TesseraStatus } from "./git";
 import { buildMessage } from "./message";
 
 export class TesseraPanelProvider implements vscode.WebviewViewProvider {
@@ -72,7 +72,8 @@ export class TesseraPanelProvider implements vscode.WebviewViewProvider {
     const status = repo ? readStatus(repo) : undefined;
     if (repo && status && status.files.length > 0) {
       const facts = allChangeFacts(repo);
-      this.previewMessage = buildMessage(facts);
+      const diffText = await readDiffText(repo);
+      this.previewMessage = buildMessage(facts, diffText);
     } else {
       this.previewMessage = "";
     }
