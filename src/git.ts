@@ -154,6 +154,21 @@ export function stagedFacts(repo: Repository): StagedFacts {
   return facts;
 }
 
+// Combined staged+unstaged diff text for the message engine to read.
+// Best-effort: any failure (e.g. no repo, git error) yields "" rather than throwing,
+// since the message engine must still fall back to count-based summaries.
+export async function readDiffText(repo: Repository): Promise<string> {
+  try {
+    const [staged, unstaged] = await Promise.all([
+      repo.diff(true),
+      repo.diff(false),
+    ]);
+    return `${staged ?? ""}\n${unstaged ?? ""}`;
+  } catch {
+    return "";
+  }
+}
+
 // Facts about everything that WOULD be committed in the one-click flow
 // (staged + unstaged + untracked), so the previewed message matches reality.
 export function allChangeFacts(repo: Repository): StagedFacts {

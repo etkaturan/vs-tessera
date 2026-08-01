@@ -74,6 +74,65 @@ function stripExt(s: string): string {
   return s.replace(/\.[^.]+$/, "");
 }
 
+// Matches one declaration name per added diff line. Order matters: the first
+// pattern that matches a given line wins, so more specific forms (e.g. an
+// exported const) are listed before broader ones (e.g. any const/let).
+const DECLARATION_PATTERNS: RegExp[] = [
+  // JS/TS named function
+  /\bfunction\s+([A-Za-z_$][\w$]*)\s*\(/,
+  // JS/TS class (also covers Python-style "class Name:" via the separate pattern below)
+  /\bclass\s+([A-Za-z_$][\w$]*)/,
+  // JS/TS exported const (covers plain exports and exported arrow components)
+  /\bexport\s+(?:default\s+)?const\s+([A-Za-z_$][\w$]*)\s*=/,
+  // JS/TS arrow function/component assigned to a const or let
+  /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^=]*\)\s*=>/,
+  // Python function
+  /\bdef\s+([A-Za-z_]\w*)\s*\(/,
+  // Rust function
+  /\bfn\s+([A-Za-z_]\w*)\s*[(<]/,
+  // Rust struct
+  /\bstruct\s+([A-Za-z_]\w*)/,
+  // Rust enum
+  /\benum\s+([A-Za-z_]\w*)/,
+  // Go function or method (receiver optional)
+  /\bfunc\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)\s*\(/,
+];
+
+// A unified-diff "file header" line also starts with "+++"; don't mistake it
+// for an added code line.
+const DIFF_FILE_HEADER_RE = /^\+\+\+ (a\/|b\/|\/dev\/null)/;
+
+// Extracts names of new declarations (functions, classes, exported consts,
+// arrow components, structs, enums) from added lines in a unified diff.
+// Deduplicated, in first-seen order. Never returns a name that isn't
+// literally present in an added line — Tessera must not invent scope.
+export function extractDeclaredNames(diffText: string): string[] {
+  if (!diffText) return [];
+  const seen = new Set<string>();
+  const names: string[] = [];
+
+  for (const raw of diffText.split(/\r?\n/)) {
+    if (!raw.startsWith("+") || DIFF_FILE_HEADER_RE.test(raw)) continue;
+    const content = raw.slice(1);
+    for (const re of DECLARATION_PATTERNS) {
+      const match = content.match(re);
+      if (match && match[1]) {
+        if (!seen.has(match[1])) {
+          seen.add(match[1]);
+          names.push(match[1]);
+        }
+        break; // one declaration per line is enough
+      }
+    }
+  }
+  return names;
+}
+
+function summarizeWithNames(f: MessageFacts, names: string[]): string {
+  const verb = f.added ? "add" : f.deleted ? "remove" : "update";
+  return `${verb} ${names.slice(0, 3).join(", ")}`;
+}
+
 function summarize(f: MessageFacts): string {
   const bits: string[] = [];
   if (f.added) bits.push(`add ${f.added} file${f.added > 1 ? "s" : ""}`);
@@ -93,10 +152,11 @@ function summarize(f: MessageFacts): string {
   return bits.join(", ");
 }
 
-export function buildMessage(f: MessageFacts): string {
+export function buildMessage(f: MessageFacts, diffText?: string): string {
   const type = classifyType(f);
   const scope = deriveScope(f.files);
-  const summary = summarize(f);
+  const names = diffText ? extractDeclaredNames(diffText) : [];
+  const summary = names.length > 0 ? summarizeWithNames(f, names) : summarize(f);
   const head = scope ? `${type}(${scope})` : type;
   return `${head}: ${summary}`;
 }

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getGitApi, pickRepository, allChangeFacts } from "./git";
+import { getGitApi, pickRepository, allChangeFacts, readDiffText } from "./git";
 import { buildMessage } from "./message";
 import { scan, hasBlocking, Finding, ScanTarget } from "./secrets";
 
@@ -90,7 +90,8 @@ export async function runCommitFlow(opts: CommitOptions = {}): Promise<void> {
   }
 
   // 3. Stage everything, resolve the message (override or generated), commit.
-  const generated = buildMessage(facts);
+  const diffText = await readDiffText(repo);
+  const generated = buildMessage(facts, diffText);
   const message = opts.message?.trim() ? opts.message.trim() : generated;
 
   try {
