@@ -10,6 +10,7 @@ export interface Finding {
   line?: number;         // 1-based; undefined for filename-only findings
   reason: string;
   severity: Severity;
+  kind: "filename" | "content"; // whole-file concern vs. a line inside otherwise-legitimate content
 }
 
 interface FilenameRule {
@@ -65,7 +66,7 @@ export function scanFilename(file: string): Finding[] {
   const findings: Finding[] = [];
   for (const rule of FILENAME_RULES) {
     if (rule.test.test(file) && !(rule.exclude && rule.exclude.test(file))) {
-      findings.push({ file, reason: rule.reason, severity: rule.severity });
+      findings.push({ file, reason: rule.reason, severity: rule.severity, kind: "filename" });
     }
   }
   return findings;
@@ -82,6 +83,7 @@ export function scanContent(target: ScanTarget): Finding[] {
           line: i + 1,
           reason: rule.reason,
           severity: rule.severity,
+          kind: "content",
         });
       }
     }

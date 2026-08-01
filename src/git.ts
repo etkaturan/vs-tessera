@@ -230,6 +230,31 @@ export function allChangeFacts(repo: Repository): StagedFacts {
 }
 
 
+// Appends file patterns to the repo's .gitignore (creating it if missing),
+// skipping any pattern already present. Patterns are written exactly as
+// reported by the scanner (the path relative to repo root), which anchors
+// them to that exact location rather than matching the name anywhere.
+export async function addPatternsToGitignore(rootUri: vscode.Uri, patterns: string[]): Promise<void> {
+  const gitignoreUri = vscode.Uri.joinPath(rootUri, ".gitignore");
+  let existing = "";
+  try {
+    const bytes = await vscode.workspace.fs.readFile(gitignoreUri);
+    existing = Buffer.from(bytes).toString("utf8");
+  } catch {
+    // .gitignore doesn't exist yet — start fresh.
+  }
+
+  const existingLines = new Set(existing.split(/\r?\n/).map((l) => l.trim()));
+  const toAdd = patterns.filter((p) => !existingLines.has(p));
+  if (toAdd.length === 0) {
+    return;
+  }
+
+  const sep = existing.length > 0 ? (existing.endsWith("\n") ? "\n" : "\n\n") : "";
+  const addition = `${sep}# Added by Tessera — flagged by the secret gate\n${toAdd.join("\n")}\n`;
+  await vscode.workspace.fs.writeFile(gitignoreUri, Buffer.from(existing + addition, "utf8"));
+}
+
 // Determines whether the latest commit can be safely undone.
 // Safe when there is at least one local commit not yet on the remote
 // (ahead > 0), or when there is no upstream at all (nothing was pushed).
